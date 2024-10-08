@@ -10,6 +10,7 @@ class MyselfModel(nn.Module):
         super(MyselfModel, self).__init__()
         self.factor = 4
 
+# ==================================== ADD fix code ==================================== #
 if __name__ == "__main__":
     # seed
     torch.manual_seed(0)
@@ -46,6 +47,6 @@ if __name__ == "__main__":
 
     print("output shape: ", output.shape)
 
-
+ajsidhjoabcjoasbcuiasbcibasoucb
 
 
