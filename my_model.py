@@ -10,6 +10,9 @@ class MyselfModel(nn.Module):
         super(MyselfModel, self).__init__()
         self.factor = 4
 
+    def forward(self, ms_image, pan_image):
+        pass
+
 if __name__ == "__main__":
     # seed
     torch.manual_seed(0)
@@ -33,7 +36,6 @@ if __name__ == "__main__":
 
     print("LR_HSI shape: ", LR_HSI.shape)  # [1, 102, 40, 40]
     print("HR_PAN shape: ", HR_PAN.shape)  # [1, 160, 160]
-
 
     model = MyselfModel()
     model.to(device)
