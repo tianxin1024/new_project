@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-
+# import ipdb
 
 class MyselfModel(nn.Module):
 
@@ -10,8 +10,26 @@ class MyselfModel(nn.Module):
         super(MyselfModel, self).__init__()
         self.factor = 4
 
+        self.n_select_bands = 102
+        self.n_bands = 102
+
+        self.Downsample = nn.Sequential(
+            nn.Conv2d(self.n_select_bands, 48, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(48, 48, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(48, self.n_bands, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(self.n_bands, self.n_bands, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+        )
+ 
     def forward(self, ms_image, pan_image):
-        pass
+        # ipdb.set_trace()
+        ms_a = self.Downsample(ms_image)
+        print("ms_a shape: ", ms_a.shape)
+
+        return ms_a
 
 if __name__ == "__main__":
     # seed
