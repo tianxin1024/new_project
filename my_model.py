@@ -21,5 +21,9 @@ if __name__ == "__main__":
     LR_HSI = torch.rand(batch_size, hs_channels, hs_size, hs_size)  # [1, 102, 40, 40]
     HR_PAN = torch.rand(batch_size, pan_size, pan_size)            # [1, 160, 160]
 
+    print("LR_HSI shape: ", LR_HSI.shape)  # [1, 102, 40, 40]
+    print("HR_PAN shape: ", HR_PAN.shape)  # [1, 160, 160]
+
+
 
 
