@@ -1,6 +1,14 @@
 # 创建自己的model
 
 import torch
+import torch.nn as nn
+
+
+class MyselfModel(nn.Module):
+
+    def __init__(self):
+        super(MyselfModel, self).__init__()
+        self.factor = 4
 
 if __name__ == "__main__":
     # seed
@@ -9,6 +17,8 @@ if __name__ == "__main__":
     #############################################################
     #################     输入参数       ########################
     #############################################################
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 定义参数
     batch_size = 1
@@ -23,6 +33,18 @@ if __name__ == "__main__":
 
     print("LR_HSI shape: ", LR_HSI.shape)  # [1, 102, 40, 40]
     print("HR_PAN shape: ", HR_PAN.shape)  # [1, 160, 160]
+
+
+    model = MyselfModel()
+    model.to(device)
+
+    # input
+    MS_image = LR_HSI.to(device)
+    PAN_image = HR_PAN.to(device)
+
+    output = model(MS_image, PAN_image)
+
+    print("output shape: ", output.shape)
 
 
 
