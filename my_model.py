@@ -23,13 +23,20 @@ class MyselfModel(nn.Module):
             nn.Conv2d(self.n_bands, self.n_bands, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
         )
- 
-    def forward(self, ms_image, pan_image):
-        # ipdb.set_trace()
-        ms_a = self.Downsample(ms_image)
-        print("ms_a shape: ", ms_a.shape)
 
-        return ms_a
+
+    # def forward(self, ms_image, pan_image):
+    #     # ipdb.set_trace()
+    #     ms_a = self.Downsample(ms_image)
+    #     print("ms_a shape: ", ms_a.shape)
+    #
+    #     return ms_a
+    def forward(self, MS_image, PAN_image):
+        #使用上采样因子 self.factor 来上采样 MS_image
+        resized_MS_image = nn.functional.interpolate(MS_image, size=(
+        self.factor * MS_image.size(2), self.factor * MS_image.size(3)), mode='bilinear', align_corners=False)
+        return resized_MS_image
+# ==================================== ADD fix code ==================================== #
 
 if __name__ == "__main__":
     # seed
@@ -59,10 +66,10 @@ if __name__ == "__main__":
     model.to(device)
 
     # input
-    MS_image = LR_HSI.to(device)
+    HS_image = LR_HSI.to(device)
     PAN_image = HR_PAN.to(device)
 
-    output = model(MS_image, PAN_image)
+    output = model(HS_image, PAN_image)
 
     print("output shape: ", output.shape)
 
