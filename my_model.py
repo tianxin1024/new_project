@@ -25,18 +25,20 @@ class MyselfModel(nn.Module):
         )
 
 
-    # def forward(self, ms_image, pan_image):
-    #     # ipdb.set_trace()
-    #     ms_a = self.Downsample(ms_image)
-    #     print("ms_a shape: ", ms_a.shape)
-    #
-    #     return ms_a
-    def forward(self, MS_image, PAN_image):
-        #使用上采样因子 self.factor 来上采样 MS_image
-        resized_MS_image = nn.functional.interpolate(MS_image, size=(
-        self.factor * MS_image.size(2), self.factor * MS_image.size(3)), mode='bilinear', align_corners=False)
-        return resized_MS_image
+    def forward(self, HS_image, PAN_image):
+        # 使用上采样因子 self.factor 来上采样 MS_image
+        N, C, H, W = HS_image.shape
+        resized_HS_image = nn.functional.interpolate(HS_image, 
+            size=(self.factor * H, self.factor * W), mode='bilinear', align_corners=False)
+
+        # TODO 
+
+        return resized_HS_image
+
+
 # ==================================== ADD fix code ==================================== #
+
+
 
 if __name__ == "__main__":
     # seed
