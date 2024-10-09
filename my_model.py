@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-
+# import ipdb
 
 class MyselfModel(nn.Module):
 
@@ -24,6 +24,7 @@ class MyselfModel(nn.Module):
             nn.ReLU(),
         )
 
+
     # def forward(self, ms_image, pan_image):
     #     # ipdb.set_trace()
     #     ms_a = self.Downsample(ms_image)
@@ -36,6 +37,7 @@ class MyselfModel(nn.Module):
         self.factor * MS_image.size(2), self.factor * MS_image.size(3)), mode='bilinear', align_corners=False)
         return resized_MS_image
 # ==================================== ADD fix code ==================================== #
+
 if __name__ == "__main__":
     # seed
     torch.manual_seed(0)
@@ -59,7 +61,6 @@ if __name__ == "__main__":
 
     print("LR_HSI shape: ", LR_HSI.shape)  # [1, 102, 40, 40]
     print("HR_PAN shape: ", HR_PAN.shape)  # [1, 160, 160]
-
 
     model = MyselfModel()
     model.to(device)
