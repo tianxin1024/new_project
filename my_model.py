@@ -34,58 +34,125 @@ class PatchEmbed(nn.Module):
         return x
 
 
+class Conv_Process(nn.Module):
+    def __init__(self, ms_channels, pan_channels, nc):
+        super(Conv_Process, self).__init__()
+        self.conv_ms = nn.Conv2d(ms_channels, nc, 3, 1, 1)
+        self.conv_pan = nn.Conv2d(pan_channels, nc, 3, 1, 1)
+
+    def forward(self, pan, ms):
+        return self.conv_pan(pan),  self.conv_ms(ms)
+
+
+class Transformer_Fusion(nn.Module):
+    def __init__(self,nc):
+        super(Transformer_Fusion, self).__init__()
+        self.conv_trans = nn.Sequential(
+            nn.Conv2d(2 * nc, nc, kernel_size = 3, stride = 1, padding = 1),
+            nn.ReLU(),
+            nn.Conv2d(nc, nc, kernel_size = 3, stride = 1, padding = 1))
+
+    def batch_index_select(self, input, dim, index):
+        # batch index select
+        # input: [N, ?, ?, ...]
+        # dim: scalar > 0
+        # index: [N, idx]
+        views = [input.size(0)] + [1 if i!=dim else -1 for i in range(1, len(input.size()))]
+        expanse = list(input.size())
+        expanse[0] = -1
+        expanse[dim] = -1
+        index = index.view(views).expand(expanse)
+        return torch.gather(input, dim, index)
+
+    def forward(self, in_HSI, in_PAN):
+        HSI_unfold  = F.unfold(in_HSI, kernel_size = (3, 3), padding = 1)
+        PAN_unfold = F.unfold(in_PAN, kernel_size = (3, 3), padding = 1)
+        PAN_unfold = PAN_unfold.permute(0, 2, 1)
+
+        PAN_unfold = F.normalize(PAN_unfold, dim = 2)    # [N, Hr*Wr, C*k*k]
+        HSI_unfold  = F.normalize(HSI_unfold, dim = 1)   # [N, C*k*k, H*W]
+
+        R = torch.bmm(PAN_unfold, HSI_unfold)            #[N, Hr*Wr, H*W]
+        # 硬注意力映射
+        R_star, R_star_arg = torch.max(R, dim = 1)       #[N, H*W]
+
+        ### transfer
+        HSI_lv3_unfold = F.unfold(in_PAN, kernel_size = (3, 3), padding = 1)
+        T_lv3_unfold = self.batch_index_select(HSI_lv3_unfold, 2, R_star_arg)
+        T_lv3 = F.fold(T_lv3_unfold, output_size=in_HSI.size()[-2:], kernel_size=(3, 3), padding=1) / (3. * 3.)
+        S = R_star.view(R_star.size(0), 1, in_HSI.size(2), in_HSI.size(3))
+        res = self.conv_trans(torch.cat([T_lv3, in_HSI],1)) * S + in_HSI
+
+        return res
+
+class PatchFusion(nn.Module):
+    def __init__(self, nc):
+        super(PatchFusion, self).__init__()
+        self.fuse = Transformer_Fusion(nc)
+
+    def forward(self, HSI_fusion, PAN_fusion):
+        ori_copy = HSI_fusion
+        B, C, H, W = HSI_fusion.size()
+        # [B, C, H, W] -> [B, C * kernel * kernel, ((H+2*padding-kernel) / stride + 1) * ((W * 2*padding - kernel) / stride + 1)]
+        HSI_f = F.unfold(HSI_fusion, kernel_size = (24, 24), stride = 8, padding = 8)
+        PAN_f = F.unfold(PAN_fusion, kernel_size=(24, 24), stride = 8, padding = 8)
+        HSI_f = HSI_f.view(-1, C, 24, 24)
+        PAN_f = PAN_f.view(-1, C, 24, 24)
+        fusef = self.fuse(HSI_f, PAN_f)
+        fusef = fusef.view(B, C * 24 * 24, -1)
+        fusef = F.fold(fusef, output_size = ori_copy.size()[-2:], kernel_size=(24, 24), stride = 8, padding = 8)
+        return fusef
+
+
 class MyselfModel(nn.Module):
 
     def __init__(self):
         super(MyselfModel, self).__init__()
-        self.n_select_bands = 102
-        self.n_bands = 102
-        self.channel_P = 1
-        self.channel_H = 102
-        self.patch_embed_P = PatchEmbed(img_size=80, patch_size=16, in_chans=self.channel_P, embed_dim=768)
-        self.patch_embed_H = PatchEmbed(img_size=80, patch_size=16, in_chans=self.channel_H, embed_dim=768)
+        self.ms_channels = 102
+        self.pan_channels = 1
+        self.n_feat = 16
 
-        self.pre_conv_P = nn.Conv2d(in_channels=self.channel_P, out_channels=self.channel_P, kernel_size=3, padding=1)
-        self.pre_conv_H = nn.Conv2d(in_channels=self.channel_H, out_channels=self.channel_H, kernel_size=3, padding=1)
-
+        self.pre_conv = Conv_Process(self.ms_channels, self.pan_channels, self.n_feat // 2)
+        self.transform_fusion = PatchFusion(self.n_feat // 2)
 
     def forward(self, HR_PAN , LR_HSI):
 
-        P_B, P_C, P_H, P_W = HR_PAN.shape
-        H_B, H_C, H_H, H_W = LR_HSI.shape
         # HR_PAN 四倍下采样
-        LR_PAN = F.interpolate(HR_PAN, scale_factor=0.25, mode='nearest')
-        print(LR_PAN.shape)
+        LR_PAN = F.interpolate(HR_PAN, scale_factor=0.25, mode='bicubic')
 
-        U_LR_PAN = F.interpolate(LR_PAN, scale_factor=4, mode='nearest')
-        U_LR_HSI = F.interpolate(LR_HSI, scale_factor=4, mode='nearest')
+        U_LR_PAN = F.interpolate(LR_PAN, scale_factor=4, mode='bicubic')
+        U_LR_HSI = F.interpolate(LR_HSI, scale_factor=4, mode='bicubic')
 
-        HR_PAN_A = F.interpolate(HR_PAN, scale_factor=0.5, mode='nearest')
-        LR_PAN_B = F.interpolate(U_LR_PAN, scale_factor=0.5, mode='nearest')
-        LR_HSI_C = F.interpolate(U_LR_HSI, scale_factor=0.5, mode='nearest')
+        HR_PAN_A = F.interpolate(HR_PAN, scale_factor=0.5, mode='bicubic')
+        LR_PAN_B = F.interpolate(U_LR_PAN, scale_factor=0.5, mode='bicubic')
+        LR_HSI_C = F.interpolate(U_LR_HSI, scale_factor=0.5, mode='bicubic')
 
-        HR_PAN_a = F.interpolate(HR_PAN_A, scale_factor=0.5, mode='nearest')
-        LR_PAN_b = F.interpolate(LR_PAN_B, scale_factor=0.5, mode='nearest')
-        LR_HSI_c = F.interpolate(LR_HSI_C, scale_factor=0.5, mode='nearest')
+        HR_PAN_a = F.interpolate(HR_PAN_A, scale_factor=0.5, mode='bicubic')
+        LR_PAN_b = F.interpolate(LR_PAN_B, scale_factor=0.5, mode='bicubic')
+        LR_HSI_c = F.interpolate(LR_HSI_C, scale_factor=0.5, mode='bicubic')
 
-        HR_PAN_alpha = F.interpolate(HR_PAN_a, scale_factor=0.5, mode='nearest')
-        LR_PAN_beta = F.interpolate(LR_PAN_b, scale_factor=0.5, mode='nearest')
-        LR_HSI_gamma = F.interpolate(LR_HSI_c, scale_factor=0.5, mode='nearest')
+        HR_PAN_alpha = F.interpolate(HR_PAN_a, scale_factor=0.5, mode='bicubic')
+        LR_PAN_beta = F.interpolate(LR_PAN_b, scale_factor=0.5, mode='bicubic')
+        LR_HSI_gamma = F.interpolate(LR_HSI_c, scale_factor=0.5, mode='bicubic')
 
-        HR_PAN_A0 = self.pre_conv_P(HR_PAN_A)
-        HR_PAN_a0 = self.pre_conv_P(HR_PAN_a)
-        HR_PAN_alpha0 = self.pre_conv_P(HR_PAN_alpha)
+        PAN_A0, HSI_C0 = self.pre_conv(HR_PAN_A, LR_HSI_C)
+        PAN_a0, HSI_c0 = self.pre_conv(HR_PAN_a, LR_HSI_c)
+        PAN_alpha0, HSI_gamma0 = self.pre_conv(HR_PAN_alpha, LR_HSI_gamma)
 
-        LR_HSI_C0 = self.pre_conv_H(LR_HSI_C)
-        LR_HSI_c0 = self.pre_conv_H(LR_HSI_c)
-        LR_HSI_gamma0 = self.pre_conv_H(LR_HSI_gamma)
+        transform_A0_C0 = self.transform_fusion(PAN_A0, HSI_C0)
+        transform_a0_c0 = self.transform_fusion(PAN_a0, HSI_c0)
+        transform_alpha_gamma = self.transform_fusion(PAN_alpha0, HSI_gamma0)
 
-        HR_PAN_A_patch_P = self.patch_embed_P(HR_PAN_A)
-        LR_HSI_C_patch_H = self.patch_embed_H(LR_HSI_C)
+        print("transform_A0_C0 shape: ", transform_A0_C0.shape)
+        print("transform_a0_c0 shape: ", transform_a0_c0.shape)
+        print("transform_alpha_gamma shape: ",transform_alpha_gamma.shape)
 
-        print("........\n")
+
+        print(" done!!! ........\n")
     
         # TODO 
+
+        return transform_A0_C0
 
 
 

@@ -3,10 +3,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 import torch.nn.init as init
-import math
-from functools import reduce
+import ipdb
 
 class CALayer(nn.Module):
     def __init__(self, channel, reduction):
@@ -153,7 +151,7 @@ class Transformer_Fusion(nn.Module):
         index = index.view(views).expand(expanse)
         return torch.gather(input, dim, index)
 
-    def forward(self, lrsr_lv3, ref_lv3):
+    def forward(self, lrsr_lv3, ref_lv3): # ms, pan
         ######################   search
         lrsr_lv3_unfold  = F.unfold(lrsr_lv3, kernel_size=(3, 3), padding=1)
         refsr_lv3_unfold = F.unfold(ref_lv3, kernel_size=(3, 3), padding=1)
@@ -186,6 +184,7 @@ class PatchFusion(nn.Module):
     def forward(self,msf,panf):
         ori = msf
         b,c,h,w = ori.size()
+        # [B, C, H, W] -> [B, C * kernel * kernel, ((H+2*padding-kernel) / stride + 1) * ((W * 2*padding - kernel) / stride + 1)]
         msf = F.unfold(msf,kernel_size=(24, 24), stride=8, padding=8)
         panf = F.unfold(panf, kernel_size=(24, 24), stride=8, padding=8)
         msf = msf.view(-1,c,24,24)
@@ -442,20 +441,14 @@ class GPPNN(nn.Module):
 
 if __name__ == "__main__":
 
+    # params
     ms_channels = 102
     pan_channels = 1
-    scale = 4
-
-    # . Set the hyper-parameters for training
-    num_epochs = 1000
-    lr = 8e-4
-    weight_decay = 0
     batch_size = 4
     n_layer = 8
     n_feat = 16
     ms_size = 40
     pan_size = 160
-
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     net = GPPNN(ms_channels, pan_channels, n_feat, n_layer).to(device)
@@ -463,10 +456,8 @@ if __name__ == "__main__":
 
     net.train()
 
-    # ms = torch.rand(batch_size, ms_channels, 40, 40).to(device)
-    # pan = torch.rand(batch_size, pan_channels, 160, 160).to(device)
-    x_ms = torch.rand(batch_size, ms_channels, ms_size, ms_size).to(device)    # [1, 4, 40, 40]
-    x_pan = torch.rand(batch_size, pan_channels, pan_size, pan_size).to(device)               # [1, 160, 160]
+    x_ms = torch.rand(batch_size, ms_channels, ms_size, ms_size).to(device)     # [1, 4, 40, 40]
+    x_pan = torch.rand(batch_size, pan_channels, pan_size, pan_size).to(device) # [1, 160, 160]
 
     imgf = net(x_ms, x_pan)
     print(imgf.shape)
