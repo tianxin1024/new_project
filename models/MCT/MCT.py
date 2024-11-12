@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import ipdb
 
 class IntermediateSequential(nn.Sequential):
     def __init__(self, *args, return_intermediate=True):
@@ -587,6 +588,7 @@ class MCT(nn.Module):
             transformer_results = self.transformer1(b, c)
             e = transformer_results['z']
             f1 = torch.cat((torch.cat((b,c), 1), e),1)
+            ipdb.set_trace()
             f1 = self.decoder1(f1)
             f1 = F.interpolate(f1, scale_factor=4, mode='bilinear')
             #f1_channel = f1.shape[1]
@@ -596,6 +598,7 @@ class MCT(nn.Module):
             g = transformer_results1['z']
             f2 = torch.cat((torch.cat((a,x_lr),1),g),1)
             f2 = torch.cat((f2,f1),1)
+            ipdb.set_trace()
             f2 = self.decoder2(f2)
             f2 = F.interpolate(f2, scale_factor=4, mode='bilinear')
 
