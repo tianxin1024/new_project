@@ -153,6 +153,7 @@ class Transformer_Fusion(nn.Module):
 
     def forward(self, lrsr_lv3, ref_lv3): # ms, pan
         ######################   search
+        ipdb.set_trace()
         lrsr_lv3_unfold  = F.unfold(lrsr_lv3, kernel_size=(3, 3), padding=1)
         refsr_lv3_unfold = F.unfold(ref_lv3, kernel_size=(3, 3), padding=1)
         refsr_lv3_unfold = refsr_lv3_unfold.permute(0, 2, 1)
@@ -182,6 +183,7 @@ class PatchFusion(nn.Module):
         self.fuse = Transformer_Fusion(nc)
 
     def forward(self,msf,panf):
+        ipdb.set_trace()
         ori = msf
         b,c,h,w = ori.size()
         # [B, C, H, W] -> [B, C * kernel * kernel, ((H+2*padding-kernel) / stride + 1) * ((W * 2*padding - kernel) / stride + 1)]

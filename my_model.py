@@ -34,7 +34,7 @@ class PatchEmbed(nn.Module):
         return x
 
 
-class Conv_Block(nn.Mudule):
+class Conv_Block(nn.Module):
     def __init__(self, in_channels):
         super(Conv_Block, self).__init__()
         self.conv = nn.Conv2d(in_channels, in_channels // 4, 1)
@@ -48,8 +48,8 @@ class Conv_Block(nn.Mudule):
 
         return x
 
-class Strip_Conv_Block(nn.Mudule):
-    def __init__(self, in_channels, n_filters):
+class Strip_Conv_Block(nn.Module):
+    def __init__(self, in_channels):
         super(Strip_Conv_Block, self).__init__()
         self.conv_block = Conv_Block(in_channels)
 
@@ -77,6 +77,7 @@ class Strip_Conv_Block(nn.Mudule):
         shape = x.size()
         x = x.reshape(shape[0], shape[1], -1).contiguous()
         x = torch.nn.functional.pad(x, (0, shape[-2]))
+        x = x.reshape(shape[0], shape[1], shape[-2], 2*shape[-2])
         x = x[..., 0:shape[-2]]
         return x
 
@@ -181,6 +182,7 @@ class MyselfModel(nn.Module):
 
         self.pre_conv = Conv_Process(self.ms_channels, self.pan_channels, self.n_feat // 2)
         self.transform_fusion = PatchFusion(self.n_feat // 2)
+        self.decoder = Strip_Conv_Block(8)     # 这里修改修改, 暂时默认为8
 
     def forward(self, HR_PAN , LR_HSI):
 
@@ -214,6 +216,13 @@ class MyselfModel(nn.Module):
         print("transform_a0_c0 shape: ", transform_a0_c0.shape)
         print("transform_alpha_gamma shape: ",transform_alpha_gamma.shape)
 
+        scb_AC = self.decoder(transform_A0_C0)
+        scb_ac = self.decoder(transform_a0_c0)
+        scb_alpha_gamma = self.decoder(transform_alpha_gamma)
+
+        print("scb_AC shape: ", scb_AC.shape)
+        print("scb_ac shape: ", scb_ac.shape)
+        print("scb_alpha_gamma shape: ", scb_alpha_gamma.shape)
 
         print(" done!!! ........\n")
     
