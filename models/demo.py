@@ -3,9 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
-from einops import repeat
 
-import ipdb
 
 def make_coord(shape, ranges=None, flatten=True):
     """ Make coordinates at grid centers.
@@ -26,16 +24,6 @@ def make_coord(shape, ranges=None, flatten=True):
     if flatten:
         ret = ret.view(-1, ret.shape[-1])
     return ret
-
-models = {}
-
-
-def register(name):
-    def decorator(cls):
-        models[name] = cls
-        return cls
-    return decorator
-
 
 class Siren(nn.Module):
     """
@@ -111,55 +99,13 @@ class MLP(nn.Module):
         x = self.layers(x.contiguous().view(-1, x.shape[-1]))
         return x.view(*shape, -1)
 
-def make(model_spec, args=None, load_sd=False):
-    if args is not None:
-        model_args = copy.deepcopy(model_spec['args'])
-        model_args.update(args)
-    else:
-        model_args = model_spec['args']
-
-    model = models[model_spec['name']](**model_args)
-    if load_sd:
-        pretrained_dict = model_spec['sd']
-        model_dict = model.state_dict()
-  
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-        model_dict.update(pretrained_dict)
-        model.load_state_dict(model_dict)
-        # model.load_state_dict(model_spec['sd'])
-    return model
- 
 
 class Implicit_Transformer_Up(nn.Module):
     def __init__(self):
         super(Implicit_Transformer_Up, self).__init__()
         self.embedding_q = None
         self.scale_token = True
-        local_ensemble = False 
         self.imnet = MLP(4, 12, [256, 256, 256, 256], 'gelu')
-
-        if local_ensemble:
-            w = {
-                'name': 'mlp',
-                'args': {
-                    'in_dim': 4,
-                    'out_dim': 1,
-                    'hidden_list': [256],
-                    'act': 'gelu'
-                }
-            }
-            self.Weight = models.make(w)
-
-            score = {
-                'name': 'mlp',
-                'args': {
-                    'in_dim': 2,
-                    'out_dim': 1,
-                    'hidden_list': [256],
-                    'act': 'gelu'
-                }
-            }
-            self.Score = models.make(score)
 
     def forward(self, input):
         feat = input
@@ -169,11 +115,12 @@ class Implicit_Transformer_Up(nn.Module):
 
         coord = make_coord((h, w)).cuda()
         scale = torch.ones_like(coord)
-        scale[:, 0] *= 1 / feat.shape[-2] # h
-        scale[:, 1] *= 1 / feat.shape[-1] # w
+        scale[:, 0] *= 1 / h # h
+        scale[:, 1] *= 1 / w # w
 
         coord = coord.unsqueeze(0)
         scale = scale.unsqueeze(0)
+
         # K
         feat_coord = make_coord(feat.shape[-2:], flatten=False).cuda() \
             .permute(2, 0, 1) \
@@ -206,7 +153,6 @@ class Implicit_Transformer_Up(nn.Module):
                 # scale = scale.view(bs*q,-1)
                 scale_ = self.embedding_s(scale_.contiguous().view(bs * q, -1))
                 inp = torch.cat([inp, scale_], dim=-1)
-
         else:
             Q, K = coord, coord_k
             rel = Q - K
@@ -219,89 +165,11 @@ class Implicit_Transformer_Up(nn.Module):
                 scale_[:, :, 1] *= feat.shape[-1]
                 inp = torch.cat([inp, scale_], dim=-1)
         
-        
-        ipdb.set_trace()
         weight = self.imnet(inp.view(bs * q, -1)).view(bs * q, feat.shape[1], 3)
         pred = torch.bmm(value.contiguous().view(bs * q, 1, -1), weight).view(bs, q, -1)
         ret = pred
- # 
- #        v_lst = [(i,j) for i in range(-1, 2, 2) for j in range(-1, 2, 2)]
- #        eps_shift = 1e-6
- #        preds = []
- #        for v in v_lst:
- #            vx = v[0]
- #            vy = v[1]
- #            # project to LR field 
- #            ipdb.set_trace()
- #            tx = ((feat.shape[-2] - 1) / (1 - scale[:,0,0])).view(feat.shape[0],  1)
- #            ty = ((feat.shape[-1] - 1) / (1 - scale[:,0,1])).view(feat.shape[0],  1)
- #            rx = (2*abs(vx) -1) / tx if vx != 0 else 0
- #            ry = (2*abs(vy) -1) / ty if vy != 0 else 0
- #            bs, q = coord.shape[:2]
- #            coord_ = coord.clone()
-
- #            if vx != 0:
- #                coord_[:, :, 0] += vx /abs(vx) * rx + eps_shift
- #            if vy != 0:
- #                coord_[:, :, 1] += vy /abs(vy) * ry + eps_shift
- #            coord_.clamp_(-1 + 1e-6, 1 - 1e-6)
- #            #Interpolate K to HR resolution  
- #            value = F.grid_sample(
- #                feat, coord_.flip(-1).unsqueeze(1),
- #                mode='nearest', align_corners=False)[:, :, 0, :] \
- #                .permute(0, 2, 1)
- #            #Interpolate K to HR resolution 
- #            coord_k = F.grid_sample(
- #                feat_coord, coord_.flip(-1).unsqueeze(1),
- #                mode='nearest', align_corners=False)[:, :, 0, :] \
- #                .permute(0, 2, 1)
-
- #            #calculate relation of Q-K
- #            if self.embedding_q:
- #                Q = self.embedding_q(coord.contiguous().view(bs * q, -1))
- #                K = self.embedding_q(coord_k.contiguous().view(bs * q, -1))
- #                rel = Q - K
- #                
- #                rel[:, 0] *= feat.shape[-2]
- #                rel[:, 1] *= feat.shape[-1]
- #                inp = rel
- #                if self.scale_token:
- #                    scale_ = scale.clone()
- #                    scale_[:, :, 0] *= feat.shape[-2]
- #                    scale_[:, :, 1] *= feat.shape[-1]
- #                    # scale = scale.view(bs*q,-1)
- #                    scale_ = self.embedding_s(scale_.contiguous().view(bs * q, -1))
- #                    inp = torch.cat([inp, scale_], dim=-1)
- #            else:
- #                Q, K = coord, coord_k
- #                rel = Q - K
- #                rel[:, :, 0] *= feat.shape[-2]
- #                rel[:, :, 1] *= feat.shape[-1]
- #                inp = rel
- #                if self.scale_token:
- #                    scale_ = scale.clone()
- #                    scale_[:, :, 0] *= feat.shape[-2]
- #                    scale_[:, :, 1] *= feat.shape[-1]
- #                    inp = torch.cat([inp, scale_], dim=-1)
-
- #            score = repeat(self.Score(rel.view(bs * q, -1)).view(bs, q, -1),'b q c -> b q (repeat c)', repeat=3)
- #            
- #            weight = self.imnet(inp.view(bs * q, -1)).view(bs * q, feat.shape[1], 3)
- #            pred = torch.bmm(value.contiguous().view(bs * q, 1, -1), weight).view(bs, q, -1)
- #            
- #            pred +=score
- #            preds.append(pred)
-
- #        preds = torch.stack(preds,dim=-1)
-
- #        ret = self.Weight(preds.view(bs*q*3, -1)).view(bs, q, -1)
-
 
         return ret
-
-
-
-
 
 if __name__ == "__main__":
     input = torch.rand(1, 4, 80, 80).to('cuda')
