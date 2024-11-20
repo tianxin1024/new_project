@@ -4,7 +4,6 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
-import ipdb
 
 class PatchEmbed(nn.Module):
     """ 2D Image to Patch Embedding """
@@ -196,10 +195,45 @@ class Implicit_Transformer_Up(nn.Module):
                 inp = torch.cat([inp, scale_], dim=-1)
         
         weight = self.imnet(inp.view(bs * q, -1)).view(bs * q, feat.shape[1], 3)
-        pred = torch.bmm(value.contiguous().view(bs * q, 1, -1), weight).view(bs, q, -1)
+        pred = torch.bmm(value.contiguous().view(bs * q, 1, -1), weight).view(bs, -1, h, w)
         ret = pred
 
         return ret
+
+
+class DepthwiseSeparableConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation=1):
+        super(DepthwiseSeparableConv, self).__init__()
+        self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size=kernel_size, stride=1, padding=dilation, dilation=dilation, groups=in_channels)
+        self.pointwise = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        x = self.depthwise(x)
+        x = self.pointwise(x)
+        return x
+
+
+
+class cwFModule(nn.Module):
+    def __init__(self, in_channels):
+        super(cwFModule, self).__init__()
+        self.conv3x3 = DepthwiseSeparableConv(in_channels*2, in_channels*2, kernel_size=3)
+        
+        self.conv1x1 = nn.Conv2d(in_channels*2, in_channels*2, kernel_size=1)
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.convout = nn.Conv2d(in_channels*2, in_channels, kernel_size=1)
+        
+
+    def forward(self, x1, x2):
+        x = torch.concat([x1,x2],dim=1)
+        x = self.conv3x3(x)
+        x = self.conv1x1(x)
+        x = self.gap(x)
+        x = self.convout(x)
+        x = nn.Sigmoid()(x)
+        x = torch.mul(x1,x)+torch.mul(x2,x)
+        x = nn.ReLU6()(x)
+        return x
 
 
 class Conv_Block(nn.Module):
@@ -353,6 +387,10 @@ class MyselfModel(nn.Module):
         self.decoder = Strip_Conv_Block(8)     # 这里修改修改, 暂时默认为8
         self.ITU = Implicit_Transformer_Up()
 
+        self.conv1 = nn.Conv2d(106, 102, kernel_size=3, padding=1)
+
+        self.head = cwFModule(in_channels=102)
+
     def forward(self, HR_PAN , LR_HSI):
 
         # HR_PAN 四倍下采样
@@ -401,16 +439,14 @@ class MyselfModel(nn.Module):
         print("itu_ac shape: ", itu_ac.shape)
         print("itu_alpha_gamma shape: ", itu_alpha_gamma.shape)
 
-        print(" done!!! ........\n")
-    
-        # TODO 
+        concat_x = torch.concat([itu_AC, HR_PAN_A, LR_HSI_C], dim=1)
+        concat_x = self.conv1(concat_x)
+        output = self.head(concat_x, LR_HSI_C)
 
-        return transform_A0_C0
-
+        return output 
 
 
 # ==================================== ADD fix code ==================================== #
-
 
 
 if __name__ == "__main__":
